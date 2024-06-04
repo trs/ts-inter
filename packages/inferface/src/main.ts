@@ -1,4 +1,4 @@
-import { createProgram, findConfigFile, readConfigFile, isTypeAliasDeclaration, Program, TypeChecker, factory } from 'typescript';
+import { createProgram, findConfigFile, readConfigFile, isTypeAliasDeclaration, Program, TypeChecker, TypeFormatFlags } from 'typescript';
 import { basename, resolve, join, dirname } from 'node:path';
 import { statSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
 import glob from 'fast-glob';
@@ -46,11 +46,14 @@ export class Inferface {
 
   public execute() {
     this.files
-      .map(this.inferTypeExports.bind(this))
-      .forEach(this.writeTypeExports.bind(this));
+      .map((file): InferfaceExport => ({
+        fileName: basename(file),
+        exports: this.inferTypeExports(file)
+      }))
+      .forEach((typeExport, i) => this.writeTypeExports(typeExport, i))
   }
 
-  public inferTypeExports(file: string): InferfaceExport[] {
+  public inferTypeExports(file: string): string[] {
     const sourceFile = this.program.getSourceFile(file);
     const symbolLoc = this.checker.getSymbolAtLocation(sourceFile);
     const moduleExports = this.checker.getExportsOfModule(symbolLoc);
@@ -59,25 +62,20 @@ export class Inferface {
       const declarations = moduleExport.getDeclarations();
 
       return declarations.filter(isTypeAliasDeclaration).map((declaration) => {
-        const typeString = this.checker.typeToString(this.checker.getTypeAtLocation(declaration));
+        const typeString = this.checker.typeToString(this.checker.getTypeAtLocation(declaration), undefined, TypeFormatFlags.InTypeAlias | TypeFormatFlags.NoTruncation | TypeFormatFlags.UseFullyQualifiedType);
 
         const text = `export type ${declaration.name.getText()} = ${typeString};`;
 
-        return {
-          fileName: basename(sourceFile.fileName),
-          text
-        };
+        return text;
       });
     });
   }
 
-  public writeTypeExports(typeExports: InferfaceExport[], index?: number) {
+  public writeTypeExports(typeExport: InferfaceExport, index: number = 0) {
     if (typeof this.options.outDir === 'string') {
       mkdirSync(this.options.outDir, {recursive: true});
 
-      for (const type of typeExports) {
-        writeFileSync(join(this.options.outDir, type.fileName), type.text, {encoding: 'utf-8'});
-      }
+      writeFileSync(join(this.options.outDir, typeExport.fileName), typeExport.exports.join('\n') + '\n', {encoding: 'utf-8'});
     }
 
     if (typeof this.options.outFile === 'string') {
@@ -85,7 +83,7 @@ export class Inferface {
         mkdirSync(dirname(this.options.outFile), {recursive: true});
       }
 
-      const text = typeExports.map(({text}) => text).join('\n') + (index < this.files.length - 1 ? '\n\n' : '');
+      const text = typeExport.exports.join('\n') + '\n';
       const writeMethod = index === 0 ? writeFileSync : appendFileSync;
       writeMethod(this.options.outFile, text, {encoding: 'utf-8'});
     }
