@@ -12,5 +12,5 @@ export type InferfaceCompilerOptions =
 
 export interface InferfaceExport {
   fileName: string;
-  text: string;
+  exports: string[];
 }
